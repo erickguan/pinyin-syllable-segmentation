@@ -1,0 +1,19 @@
+﻿---
+BasedOnStyle: Google
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterStruct: true
+  AfterEnum: true
+  AfterFunction: true
+  AfterUnion: true
+  AfterExternBlock: false
+  BeforeCatch: false
+  AfterNamespace: false
+  AfterControlStatement: false
+  SplitEmptyFunction: false
+TabWidth: '2'
+UseTab: Never
+IndentCaseLabels: false
+
+...
