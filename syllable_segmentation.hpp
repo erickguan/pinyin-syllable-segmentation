@@ -19,9 +19,9 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
-#include <optional>
 
 #include <boost/bimap.hpp>
 
@@ -39,8 +39,13 @@ struct Syllable
 
   int16_t stored_in_phone_idx_ = -1;
   int16_t pos_ = -1;
-  Syllable(int32_t phone_idx, int16_t syllable_idx, int16_t stored_in_phone_idx, int16_t pos): phone_idx_(phone_idx),
-  syllable_idx_(syllable_idx), stored_in_phone_idx_(stored_in_phone_idx), pos_(pos) {}
+  Syllable(int32_t phone_idx, int16_t syllable_idx, int16_t stored_in_phone_idx,
+           int16_t pos)
+      : phone_idx_(phone_idx),
+        syllable_idx_(syllable_idx),
+        stored_in_phone_idx_(stored_in_phone_idx),
+        pos_(pos)
+  {}
 };
 
 struct Phone
@@ -66,11 +71,13 @@ std::shared_ptr<SyllableIndexBiMap> LoadSyllableIndex(
     std::string line;
     getline(fin, line);  // skip header
 
-    std::istringstream line_ss(line);
-    std::string syllable_str;
-    int16_t cur_idx = 0;
-    if (getline(line_ss, syllable_str, ',')) {
-      index->insert(SyllableIndexBiMapPosition(syllable_str, cur_idx++));
+    while (getline(fin, line)) {
+      std::istringstream line_ss(line);
+      std::string syllable_str;
+      int16_t cur_idx = 0;
+      if (getline(line_ss, syllable_str, ',')) {
+        index->insert(SyllableIndexBiMapPosition(syllable_str, cur_idx++));
+      }
     }
     return index;
   }
@@ -85,7 +92,9 @@ class SyllableSegmentor
   SyllableSegmentor(
       const std::shared_ptr<SyllableIndexBiMap>& syllable_bimap,
       const char syllable_separator = kDefaultPinYinSyllableSeparator)
-      : phones_(kNumRootPhoneElement), syllable_bimap_(syllable_bimap), syllable_separator_(syllable_separator)
+      : phones_(kNumRootPhoneElement),
+        syllable_bimap_(syllable_bimap),
+        syllable_separator_(syllable_separator)
   {}
   SyllableSegmentor(const SyllableSegmentor& rhs) = delete;
   void operator=(const SyllableSegmentor& rhs) = delete;
@@ -97,7 +106,7 @@ class SyllableSegmentor
       return {};
     } else {
       int16_t idx = m.find(syllable)->second;
-      return { idx };
+      return {idx};
     }
   }
 
@@ -113,13 +122,15 @@ class SyllableSegmentor
          iter++, ++num_phones) {
       stack.push_back(iter->phone_);
       std::string possible_syllables(stack.crbegin(), stack.crend());
-      if (auto syllable_idx = getSyllableIndex(possible_syllables); syllable_idx) {
+      if (auto syllable_idx = getSyllableIndex(possible_syllables);
+          syllable_idx) {
         // stored in the phone node before the current phone in the stack
         auto next_iter = std::next(iter);
         auto cur_phone_idx =
             std::distance(begin(phones_), next_iter.base()) - 1;
-        next_iter->syllables_.push_back(Syllable(phone_idx, *syllable_idx, cur_phone_idx,
-                       next_iter->syllables_.size()));
+        next_iter->syllables_.push_back(Syllable(phone_idx, *syllable_idx,
+                                                 cur_phone_idx,
+                                                 next_iter->syllables_.size()));
       }
     }
   }
@@ -129,7 +140,8 @@ class SyllableSegmentor
     return s->pos_ >= phones_[s->stored_in_phone_idx_].syllables_.size() - 1;
   }
 
-  inline std::optional<const Syllable*> nextSyllableInChain(const Syllable* s) const
+  inline std::optional<const Syllable*> nextSyllableInChain(
+      const Syllable* s) const
   {
     if (!phones_[s->phone_idx_].syllables_.empty()) {
       return &phones_[s->phone_idx_].syllables_.front();
@@ -171,7 +183,9 @@ class SyllableSegmentor
                 [](const std::string& a, const std::string& b) {
                   return a + kDefaultPinYinSyllableSeparator + b;
                 },
-                [this](const Syllable* s) -> std::string { return translateSyllableIndex(s); }) +
+                [this](const Syllable* s) -> std::string {
+                  return translateSyllableIndex(s);
+                }) +
             kDefaultPinYinSyllableSeparator + translateSyllableIndex(t);
         stack.pop_back();
         t = stack.front();

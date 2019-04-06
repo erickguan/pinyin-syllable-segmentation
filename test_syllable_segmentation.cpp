@@ -14,27 +14,42 @@ namespace epinyin {
 using namespace std;
 using namespace Catch;
 
-class SyllableSegmentorFixture {
-  protected:
-   shared_ptr<SyllableIndexBiMap> syllable_bimap_;
-  public:
-    SyllableSegmentorFixture(): syllable_bimap_(LoadSyllableIndex()) {}
+TEST_CASE("LoadSyllableIndex loads the syllables")
+{
+  auto s = LoadSyllableIndex();
+  REQUIRE(s->left.at("fa") > 0);
+}
+
+class SyllableSegmentorFixture
+{
+ protected:
+  shared_ptr<SyllableIndexBiMap> syllable_bimap_;
+
+ public:
+  SyllableSegmentorFixture() : syllable_bimap_(LoadSyllableIndex()) {}
 };
 
-TEST_CASE_METHOD(SyllableSegmentorFixture, "AppendPhone can be appended with more phones", "[unit]") {
+TEST_CASE_METHOD(SyllableSegmentorFixture,
+                 "AppendPhone can be appended with more phones", "[unit]")
+{
   SyllableSegmentor s(syllable_bimap_);
   REQUIRE_NOTHROW(s.AppendPhone('c'));
 }
 
-TEST_CASE_METHOD(SyllableSegmentorFixture, "PopLastPhone can delete last phone", "[unit]") {
+TEST_CASE_METHOD(SyllableSegmentorFixture, "PopLastPhone can delete last phone",
+                 "[unit]")
+{
   SyllableSegmentor s(syllable_bimap_);
   REQUIRE_NOTHROW(s.AppendPhone('c'));
   REQUIRE_NOTHROW(s.PopLastPhone());
 }
 
-TEST_CASE_METHOD(SyllableSegmentorFixture, "GetSyllableList return a list of syllable list", "[unit]") {
+TEST_CASE_METHOD(SyllableSegmentorFixture,
+                 "GetSyllableList return a list of syllable list", "[unit]")
+{
   string test1 = "fangan";
-  SECTION("input " + test1) {
+  SECTION("input " + test1)
+  {
     SyllableSegmentor s(syllable_bimap_);
     for (auto c : test1) {
       s.AppendPhone(c);
@@ -45,7 +60,8 @@ TEST_CASE_METHOD(SyllableSegmentorFixture, "GetSyllableList return a list of syl
   }
 
   string test2 = "xiangang";
-  SECTION("input " + test2) {
+  SECTION("input " + test2)
+  {
     SyllableSegmentor s(syllable_bimap_);
     for (auto c : test2) {
       s.AppendPhone(c);
@@ -74,4 +90,4 @@ TEST_CASE_METHOD(SyllableSegmentorFixture, "can add, query, and delete phones",
   CHECK_THAT(n, VectorContains(string("fang")));
 }
 
-}; // namespace epinyin
+};  // namespace epinyin
