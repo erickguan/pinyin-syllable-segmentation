@@ -14,27 +14,67 @@
 // TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
 // THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#include <ctype>
-#include <forward_list>
+#include <cstdint>
+#include <exception>
+#include <fstream>
+#include <iterator>
+#include <memory>
+#include <string>
+#include <vector>
+#include <optional>
+
+#include <boost/bimap.hpp>
+
+namespace epinyin {
 
 const auto EmptyPhone = '\0';
-
-struct Phone
-{
-  vector<Syllable> syllables_;
-  char phone_ = EmptyPhone;
-  bool empty() const { return phone_ == EmptyPhone; }
-};
+const size_t kNumRootPhoneElement = 1;
+const auto kMaxPhoneLength = 5;
+const auto kDefaultPinYinSyllableSeparator = '`';
 
 struct Syllable
 {
   int32_t phone_idx_ = -1;
   int16_t syllable_idx_ = -1;
+
+  int16_t stored_in_phone_idx_ = -1;
+  int16_t pos_ = -1;
+  Syllable(int32_t phone_idx, int16_t syllable_idx, int16_t stored_in_phone_idx, int16_t pos): phone_idx_(phone_idx),
+  syllable_idx_(syllable_idx), stored_in_phone_idx_(stored_in_phone_idx), pos_(pos) {}
 };
 
-const auto kNumRootPhoneElement = 1;
-const auto kMaxPhoneLength = 5;
-const auto kPinYinSeparator = '`';
+struct Phone
+{
+  std::vector<Syllable> syllables_;
+  char phone_;
+  bool empty() const { return phone_ == EmptyPhone; }
+  explicit Phone(char phone = EmptyPhone) : phone_(phone) {}
+};
+
+typedef boost::bimap<std::string, int16_t> SyllableIndexBiMap;
+typedef SyllableIndexBiMap::value_type SyllableIndexBiMapPosition;
+
+std::shared_ptr<SyllableIndexBiMap> LoadSyllableIndex(
+    const std::string& path = "syllable_list.csv")
+{
+  auto index = std::make_shared<SyllableIndexBiMap>();
+
+  std::fstream fin(path, fin.in);
+  if (!fin.is_open()) {
+    throw std::invalid_argument("Invalid path to load syllables from " + path);
+  } else {
+    std::string line;
+    getline(fin, line);  // skip header
+
+    std::istringstream line_ss(line);
+    std::string syllable_str;
+    int16_t cur_idx = 0;
+    if (getline(line_ss, syllable_str, ',')) {
+      index->insert(SyllableIndexBiMapPosition(syllable_str, cur_idx++));
+    }
+    return index;
+  }
+}
 
 /*
  * Creates a SyllableSegmentor to split syllables.
@@ -42,86 +82,129 @@ const auto kPinYinSeparator = '`';
 class SyllableSegmentor
 {
  public:
-  explicit SyllableSegmentor() = default;
+  SyllableSegmentor(
+      const std::shared_ptr<SyllableIndexBiMap>& syllable_bimap,
+      const char syllable_separator = kDefaultPinYinSyllableSeparator)
+      : phones_(kNumRootPhoneElement), syllable_bimap_(syllable_bimap), syllable_separator_(syllable_separator)
+  {}
   SyllableSegmentor(const SyllableSegmentor& rhs) = delete;
   void operator=(const SyllableSegmentor& rhs) = delete;
 
-  optional<int16_t> getSyllableIndex(const std::string& syllable) {}
+  std::optional<int16_t> getSyllableIndex(const std::string& syllable) const
+  {
+    const auto& m = syllable_bimap_->left;
+    if (m.find(syllable) == m.end()) {
+      return {};
+    } else {
+      int16_t idx = m.find(syllable)->second;
+      return { idx };
+    }
+  }
 
   void AppendPhone(char phone)
   {
-    auto idx = phones_.count();
-    phones_.push_back(phone);
+    auto phone_idx = phones_.size();
+    phones_.push_back(Phone(phone));
     int num_phones = 0;
     std::vector<char> stack;
-    for (auto iter = phones_.crbegin();
-         !iter->empty() && iter != phones_.crend() &&
+    for (auto iter = phones_.rbegin();
+         !iter->empty() && iter != phones_.rend() &&
          num_phones < kMaxPhoneLength;
          iter++, ++num_phones) {
-      stack.push_back(*iter);
+      stack.push_back(iter->phone_);
       std::string possible_syllables(stack.crbegin(), stack.crend());
-      if (auto syllable_idx = getSyllableIndex(possible_syllables)) {
+      if (auto syllable_idx = getSyllableIndex(possible_syllables); syllable_idx) {
         // stored in the phone node before the current phone in the stack
-        std::next(iter)->syllables.emplace_back(idx, syllable_idx);
+        auto next_iter = std::next(iter);
+        auto cur_phone_idx =
+            std::distance(begin(phones_), next_iter.base()) - 1;
+        next_iter->syllables_.push_back(Syllable(phone_idx, *syllable_idx, cur_phone_idx,
+                       next_iter->syllables_.size()));
       }
     }
   }
 
-  std::vector<std::string> GetSyllableList()
+  inline bool isEndOfSyllableStored(const Syllable* s) const
+  {
+    return s->pos_ >= phones_[s->stored_in_phone_idx_].syllables_.size() - 1;
+  }
+
+  inline std::optional<const Syllable*> nextSyllableInChain(const Syllable* s) const
+  {
+    if (!phones_[s->phone_idx_].syllables_.empty()) {
+      return &phones_[s->phone_idx_].syllables_.front();
+    } else {
+      return {};
+    }
+  }
+
+  inline bool isLeafSyllable(const Syllable* s) const
+  {
+    return s->phone_idx_ >= phones_.size() - 1;
+  }
+
+  inline std::string translateSyllableIndex(const Syllable* s) const
+  {
+    return syllable_bimap_->right.at(s->syllable_idx_);
+  }
+
+  std::vector<std::string> GetSyllableList() const
   {
     std::vector<std::string> result;
-    std::vector<Syllable*> stack;
+    std::vector<const Syllable*> stack;
 
-    if (!phones_.front().syllables_.empty()) {
-      stack.push_back(phones_.front().syllables_.front());
+    const auto& root = phones_.front().syllables_;
+    if (root.empty()) {
+      return result;
     }
-    while (!stack.empty()) {
-      std::string syllable_list = std::transform_reduce(
-          stack.crbegin(), stack.crend(), "",
-          [](const std::string& a, const std::string& b) {
-            return a + kPinYinSeparator + b;
-          },
-          [](const Syllable* s) {  // return a string of correspoding syllable
-          });
-
-      auto t = stack.front();
-      if (!phones_[t.phone_idx].syllables_.empty()) {
-        s.push(&phones_[t.phone_idx].syllables_.front());
-      } else if (t->phone_idx_ == phones_.count() - 1) { // points to the end of phones
-        // collects the string and leave
+    const Syllable* t = &root.front();
+    while (!isEndOfSyllableStored(t)) {
+      if (auto next_syllable = nextSyllableInChain(t); next_syllable) {
+        stack.push_back(t);
+        t = *next_syllable;
+        continue;
+      } else if (isLeafSyllable(t)) {
+        std::string syllable_list =
+            std::transform_reduce(
+                std::next(stack.crbegin()), stack.crend(),
+                translateSyllableIndex(*stack.crbegin()),
+                [](const std::string& a, const std::string& b) {
+                  return a + kDefaultPinYinSyllableSeparator + b;
+                },
+                [this](const Syllable* s) -> std::string { return translateSyllableIndex(s); }) +
+            kDefaultPinYinSyllableSeparator + translateSyllableIndex(t);
+        stack.pop_back();
+        t = stack.front();
       }
       do {
-        if ()
-      }
-      do {
-        if (cur->next_ == nullptr) {
-          cur = s.top();
-          s.pop();
+        if (!nextSyllableInChain(t).has_value()) {
+          stack.pop_back();
+          t = stack.front();
         }
-      } while (!s.empty() && (cur->next_ == nullptr));
-      if (cur != nullptr) {
-        cur = cur->next_;
+      } while (!stack.empty() && !nextSyllableInChain(t).has_value());
+      if (const auto next_syllable = nextSyllableInChain(t); next_syllable) {
+        t = *next_syllable;
       }
     }
     return result;
   }
 
+  void PopLastPhone()
+  {
+    auto last_phone_idx = phones_.size() - 1;
+    for (auto& p : phones_) {
+      auto& s = p.syllables_;
+      while (!s.empty() && s.back().phone_idx_ == last_phone_idx) {
+        s.pop_back();
+      }
+    }
+    phones_.pop_back();
+  }
+
  private:
-  std::vector<Phone> phones_(kNumRootPhoneElement);
+  std::vector<Phone> phones_;
+  std::shared_ptr<SyllableIndexBiMap> syllable_bimap_;
+  char syllable_separator_;
 };
 
-void DeletePhoneNode(PhoneNode* phone_node)
-{
-  auto p = phone_node->prev_;
-  while (p != nullptr) {
-    auto cur = p->syllable_node_;
-    while (cur != nullptr) {
-      if (cur->phone_node_ == phone_node) {
-        DeleteCandidateNode(cur);
-      }
-      cur = cur->next_;
-    }
-    p = p->prev_;
-  }
-  pHeadList = pHeadList->pPrePYNode;
-}
+};  // namespace epinyin
