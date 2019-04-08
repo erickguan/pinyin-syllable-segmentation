@@ -14,32 +14,34 @@ namespace epinyin {
 using namespace std;
 using namespace Catch;
 
-TEST_CASE("LoadSyllableIndex loads the syllables")
+TEST_CASE("SyllableIndex loads the syllables")
 {
-  auto s = LoadSyllableIndex();
-  REQUIRE(s->left.at("fa") > 0);
+  auto s = SyllableIndex::CreateShared("syllable_list.csv");
+  REQUIRE(s->GetIndex("fa") > 0);
 }
 
 class SyllableSegmentorFixture
 {
  protected:
-  shared_ptr<SyllableIndexBiMap> syllable_bimap_;
+  shared_ptr<SyllableIndex> syllable_index_;
 
  public:
-  SyllableSegmentorFixture() : syllable_bimap_(LoadSyllableIndex()) {}
+  SyllableSegmentorFixture()
+      : syllable_index_(SyllableIndex::CreateShared("syllable_list.csv"))
+  {}
 };
 
 TEST_CASE_METHOD(SyllableSegmentorFixture,
                  "AppendPhone can be appended with more phones", "[unit]")
 {
-  SyllableSegmentor s(syllable_bimap_);
+  SyllableSegmentor s(syllable_index_);
   REQUIRE_NOTHROW(s.AppendPhone('c'));
 }
 
 TEST_CASE_METHOD(SyllableSegmentorFixture, "PopLastPhone can delete last phone",
                  "[unit]")
 {
-  SyllableSegmentor s(syllable_bimap_);
+  SyllableSegmentor s(syllable_index_);
   REQUIRE_NOTHROW(s.AppendPhone('c'));
   REQUIRE_NOTHROW(s.PopLastPhone());
 }
@@ -50,7 +52,7 @@ TEST_CASE_METHOD(SyllableSegmentorFixture,
   string test1 = "fangan";
   SECTION("input " + test1)
   {
-    SyllableSegmentor s(syllable_bimap_);
+    SyllableSegmentor s(syllable_index_);
     for (auto c : test1) {
       s.AppendPhone(c);
     }
@@ -62,7 +64,7 @@ TEST_CASE_METHOD(SyllableSegmentorFixture,
   string test2 = "xiangang";
   SECTION("input " + test2)
   {
-    SyllableSegmentor s(syllable_bimap_);
+    SyllableSegmentor s(syllable_index_);
     for (auto c : test2) {
       s.AppendPhone(c);
     }
@@ -77,7 +79,7 @@ TEST_CASE_METHOD(SyllableSegmentorFixture,
 TEST_CASE_METHOD(SyllableSegmentorFixture, "can add, query, and delete phones",
                  "[integration]")
 {
-  SyllableSegmentor s(syllable_bimap_);
+  SyllableSegmentor s(syllable_index_);
   for (auto c : "fangan") {
     s.AppendPhone(c);
   }
@@ -86,6 +88,7 @@ TEST_CASE_METHOD(SyllableSegmentorFixture, "can add, query, and delete phones",
   CHECK_THAT(l, VectorContains(string("fan`gan")));
   s.PopLastPhone();
   s.PopLastPhone();
+  REQUIRE(s.size() == 4);
   auto n = s.GetSyllableList();
   CHECK_THAT(n, VectorContains(string("fang")));
 }
